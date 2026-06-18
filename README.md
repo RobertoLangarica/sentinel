@@ -129,8 +129,11 @@ sentinel review 123                          # interactive review (the normal wa
 sentinel review 123 --guidance "security"    # start with specific guidance
 sentinel review 123 --no-guidance            # skip just the guidance question
 sentinel review 123 --yes                    # no questions at all (for scripts/CI)
-sentinel review --resume a3f2-keen-check      # continue a run that got interrupted
+sentinel review 123 --resume                 # resume the latest run for PR 123 (no id needed)
+sentinel review --resume a3f2-keen-check      # resume a specific run by id
 sentinel runs                                # list your recent runs and their status
+sentinel runs prune                          # delete finished runs (cleanup)
+sentinel runs rm a3f2-keen-check             # delete a specific run by id
 sentinel config show                         # check your setup
 sentinel --help                              # see everything
 ```
@@ -217,7 +220,7 @@ makes runs **resumable** and what `sentinel runs` reads from.
 
 ```bash
 npm run build     # compile TypeScript → dist/
-npm test          # build + run the unit test suite (22 tests)
+npm test          # build + run the unit test suite (27 tests)
 ```
 
 **After you change the source code:**
