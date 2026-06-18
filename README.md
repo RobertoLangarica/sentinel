@@ -158,7 +158,7 @@ sentinel review --resume a3f2-keen-check      # picks up where it left off
 | Command | What it does |
 |---------|--------------|
 | `sentinel config set-key <key>` | Save your Anthropic API key (one time) |
-| `sentinel config set-model <name>` | Set a default model (e.g. `claude-3-5-sonnet-latest`) |
+| `sentinel config set-model <name>` | Set a default model (e.g. `claude-sonnet-4-5-20250929`) |
 | `sentinel config show` | Show current config (key masked) |
 | `sentinel config path` | Print the config file location |
 

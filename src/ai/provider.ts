@@ -3,7 +3,7 @@ import { ProviderAuthError, ProviderError } from '../types.js';
 import { getApiKey } from '../config.js';
 import type { Provider, ProviderTurn, AgentTool } from '../types.js';
 
-export const DEFAULT_MODEL = 'claude-3-5-sonnet-latest';
+export const DEFAULT_MODEL = 'claude-sonnet-4-5-20250929';
 
 export class AnthropicProvider implements Provider {
   name = 'anthropic';
