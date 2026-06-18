@@ -2,7 +2,9 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import { Orchestrator } from './orchestrator.js';
 import { WorkflowManagerImpl } from './db/workflow.js';
+import { loadConfig, setApiKey, setModel, getConfiguredModel, CONFIG_PATH } from './config.js';
 import type { ReviewOptions } from './types.js';
+
 
 const program = new Command();
 
@@ -29,11 +31,53 @@ program
       guidance: guidanceProvided ? opts.guidance : undefined,
       interactive: !opts.yes,
       promptGuidance: opts.guidance === false ? false : !opts.yes,
-      model: opts.model,
+      model: opts.model ?? getConfiguredModel(),
     };
     const res = await new Orchestrator().run(options);
     process.exit(res.state === 'DONE' ? 0 : 1);
   });
+
+const config = program
+  .command('config')
+  .description('Manage Sentinel configuration (~/.config/sentinel/config.json)');
+
+config
+  .command('set-key')
+  .description('Save your Anthropic API key so you never have to set it again')
+  .argument('<key>', 'Anthropic API key (sk-ant-...)')
+  .action((key: string) => {
+    setApiKey(key);
+    console.log(chalk.green('✓ API key saved to ') + chalk.dim(CONFIG_PATH));
+    console.log(chalk.dim('  You can now run `sentinel review <pr>` without exporting anything.'));
+  });
+
+config
+  .command('set-model')
+  .description('Set a default model (overridable per-run with --model)')
+  .argument('<name>', 'Model name, e.g. claude-3-5-sonnet-latest')
+  .action((name: string) => {
+    setModel(name);
+    console.log(chalk.green('✓ Default model set to ') + chalk.bold(name));
+  });
+
+config
+  .command('show')
+  .description('Show current configuration (key is masked)')
+  .action(() => {
+    const cfg = loadConfig();
+    const masked = cfg.anthropicApiKey
+      ? cfg.anthropicApiKey.slice(0, 7) + '…' + cfg.anthropicApiKey.slice(-4)
+      : chalk.red('(not set)');
+    console.log(`${chalk.dim('Config file:')} ${CONFIG_PATH}`);
+    console.log(`${chalk.dim('API key:')}     ${masked}`);
+    console.log(`${chalk.dim('Model:')}       ${cfg.model ?? chalk.dim('(default)')}`);
+  });
+
+config
+  .command('path')
+  .description('Print the config file path')
+  .action(() => console.log(CONFIG_PATH));
+
 
 program
   .command('runs')

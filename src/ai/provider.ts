@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { ProviderAuthError, ProviderError } from '../types.js';
+import { getApiKey } from '../config.js';
 import type { Provider, ProviderTurn, AgentTool } from '../types.js';
 
 export const DEFAULT_MODEL = 'claude-3-5-sonnet-latest';
@@ -8,10 +9,16 @@ export class AnthropicProvider implements Provider {
   name = 'anthropic';
   private client: Anthropic;
 
-  constructor(apiKey = process.env.ANTHROPIC_API_KEY) {
-    if (!apiKey) throw new ProviderAuthError('Set ANTHROPIC_API_KEY to use the Anthropic provider.');
+  // Key resolution: explicit arg → config file (~/.config/sentinel) → ANTHROPIC_API_KEY env.
+  constructor(apiKey = getApiKey()) {
+    if (!apiKey) {
+      throw new ProviderAuthError(
+        'No Anthropic API key found. Run `sentinel config set-key <key>` or set ANTHROPIC_API_KEY.',
+      );
+    }
     this.client = new Anthropic({ apiKey });
   }
+
 
   async complete(messages: any[], tools: AgentTool[], model = DEFAULT_MODEL): Promise<ProviderTurn> {
     try {

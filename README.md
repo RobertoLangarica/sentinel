@@ -2,66 +2,194 @@
 
 AI-powered PR reviewer. Sentinel learns your repo's rules (from `README`, `AGENTS`,
 explicit constraints like "do not touch this file"), understands a PR's goals, takes
-your guidance, generates a concise review, lets you approve it, and posts it to GitHub
-as a single, evolving comment.
+your guidance, generates a concise review, lets you **approve it before anything is
+posted**, and then posts it to GitHub as a single, evolving comment.
 
-## How it works
+---
+
+## The mental model (read this first if CLIs are new to you)
+
+A **CLI tool** is just a program you run by typing its name in a terminal, followed by
+a command and some options. Think of it like sentences:
 
 ```
-review → learn repo rules → your guidance → AI generates review
-       → you approve/edit → posts (or edits) a single PR comment with the commit SHA
+sentinel  review  123  --guidance "focus on security"
+   │         │     │            │
+   tool   command  argument    option (a named setting)
 ```
 
-- **Idempotent:** re-running on the same PR edits the existing Sentinel comment (it
-  never spams duplicates) and marks previously-found issues as resolved when fixed.
-- **Resumable:** each run is tracked in a per-run SQLite DB under `.sentinel/runs/`.
-  If a run fails, continue with `--resume <run-id>`.
-- **Agentic:** the model consults a knowledge base of your repo's rules on demand
-  rather than carrying all context every turn.
+- **tool** = `sentinel` (the program itself)
+- **command** = what you want it to do (`review`, `runs`, `config`)
+- **argument** = the thing it acts on (here, PR number `123`)
+- **option/flag** = a setting that tweaks behavior (starts with `--`)
 
-## Setup
+You don't memorize anything — every command has `--help`:
 
 ```bash
-# 1. GitHub CLI must be installed and authenticated (Sentinel uses it for all GitHub access)
+sentinel --help            # top-level: lists all commands
+sentinel review --help     # help for one command
+sentinel config --help
+```
+
+**Two things Sentinel needs to do its job:**
+
+1. **GitHub access** — it shells out to the `gh` CLI (GitHub's official tool). You log
+   in once with `gh auth login` and Sentinel reuses that. No tokens to manage.
+2. **An Anthropic API key** — this is what powers the AI. You save it **once** into a
+   config file (below) and then forget about it.
+
+Everything Sentinel stores for a run lives in a hidden `.sentinel/` folder inside the
+repo you're reviewing — it's gitignored, so it never gets committed.
+
+---
+
+## One-time setup
+
+```bash
+# 1. Install the GitHub CLI and log in (Sentinel uses it for all GitHub access)
+#    (macOS: `brew install gh`)
 gh auth login
 
-# 2. Anthropic API key
-export ANTHROPIC_API_KEY=sk-ant-...
-
-# 3. Install + build + link
+# 2. Build and link Sentinel so you can call it from anywhere
+cd /path/to/sentinel
 npm install
 npm run build
-npm link        # makes `sentinel` available globally
+npm link            # makes the `sentinel` command available globally
+
+# 3. Save your Anthropic API key ONCE (this is the "set and forget" part)
+sentinel config set-key sk-ant-xxxxxxxxxxxxxxxx
 ```
 
-## Usage
+That's it. The key is written to `~/.config/sentinel/config.json` (readable only by
+you). You never have to type or export it again.
+
+**Verify your setup any time:**
 
 ```bash
-sentinel review 123                         # Interactive review of PR #123
-sentinel review 123 --guidance "security"   # Add specific guidance
-sentinel review 123 --yes                    # No prompts (automation)
-sentinel review 123 --no-guidance            # Skip only the guidance prompt
-sentinel review --resume a3f2-keen-check     # Continue an interrupted run
-sentinel review 123 --model claude-3-opus-latest  # Override the model
-sentinel runs                                # List recent runs
-sentinel --help                              # Full help
+sentinel config show
+# Config file: /Users/you/.config/sentinel/config.json
+# API key:     sk-ant-…abcd   ← masked, just confirms it's set
+# Model:       (default)
 ```
 
-## Workflow steps
+> Prefer environment variables instead of the config file? Sentinel also reads
+> `ANTHROPIC_API_KEY` from the environment. The config file simply takes priority if
+> both are present — so you can set it once and ignore it.
+
+---
+
+## Your first review
+
+From **inside the repo whose PR you want to review** (so `gh` knows which repo you mean):
+
+```bash
+cd /path/to/your/project
+sentinel review 123          # 123 = the PR number
+```
+
+Here's what happens, step by step (you'll see each one with a spinner ✓):
+
+```
+🛡️  Sentinel PR Review
+──────────────────────────────────────────────────
+Run ID: a3f2-keen-check          ← a name for this run (used to resume later)
+
+✓ Fetched PR #123: Add auth middleware
+✓ Knowledge extracted (5 entries from 2 files)   ← learned your repo's rules
+┌ Learned Rules ──────────────────────┐
+│ 1. [constraint] Never edit config/…  │
+│ 2. [goal] Add JWT auth to the API    │
+└──────────────────────────────────────┘
+
+? Additional guidance/constraints (Enter to skip):   ← type anything, or just press Enter
+✓ Review generated
+
+┌ 📝 Review Preview ───────────────────┐
+│ ## Sentinel Review                    │
+│ - ⚠️ Hardcoded secret in auth.ts:42   │
+│ ...                                   │
+└──────────────────────────────────────┘
+
+? What next?           ← YOU are in control here; nothing is posted yet
+  ❯ Approve and post to GitHub
+    Edit review in $EDITOR
+    Regenerate review
+    Cancel
+```
+
+Pick **Approve**, and Sentinel posts the review as a comment on PR #123, stamped with
+the commit it reviewed. Done.
+
+---
+
+## Everyday commands
+
+```bash
+sentinel review 123                          # interactive review (the normal way)
+sentinel review 123 --guidance "security"    # start with specific guidance
+sentinel review 123 --no-guidance            # skip just the guidance question
+sentinel review 123 --yes                    # no questions at all (for scripts/CI)
+sentinel review --resume a3f2-keen-check      # continue a run that got interrupted
+sentinel runs                                # list your recent runs and their status
+sentinel config show                         # check your setup
+sentinel --help                              # see everything
+```
+
+### Re-reviewing the same PR
+
+Just run `sentinel review 123` again after new commits land. Sentinel finds its own
+previous comment and **edits it in place** (no duplicate spam): it marks issues you've
+fixed as resolved, keeps the ones still open, adds anything new, and updates the commit
+stamp.
+
+### If something fails mid-run
+
+Network hiccup? API error? Nothing is lost. Sentinel saves progress at every step:
+
+```bash
+sentinel runs                                # find the run id (e.g. a3f2-keen-check)
+sentinel review --resume a3f2-keen-check      # picks up where it left off
+```
+
+---
+
+## Configuration reference
+
+| Command | What it does |
+|---------|--------------|
+| `sentinel config set-key <key>` | Save your Anthropic API key (one time) |
+| `sentinel config set-model <name>` | Set a default model (e.g. `claude-3-5-sonnet-latest`) |
+| `sentinel config show` | Show current config (key masked) |
+| `sentinel config path` | Print the config file location |
+
+Config file: `~/.config/sentinel/config.json`
+
+**Key resolution order:** `--model`/explicit → config file → environment variable → built-in default.
+
+---
+
+## Workflow steps (what "the run" actually is)
 
 `INIT → FETCH_PR → EXTRACT → GUIDANCE → GENERATE → APPROVE → POST → DONE`
 
-Each step is tracked and visible in the terminal. A failure persists state so you can
-always `--resume`.
+Each step is tracked in a per-run SQLite database under `.sentinel/runs/`. That's what
+makes runs **resumable** and what `sentinel runs` reads from.
+
+---
 
 ## Requirements
 
 - Node.js ≥ 20
-- `gh` CLI (authenticated)
-- `ANTHROPIC_API_KEY`
+- `gh` CLI, authenticated (`gh auth login`)
+- An Anthropic API key (`sentinel config set-key …`)
 
-## Notes
+## For developers
 
-- `.sentinel/` is gitignored — run databases are local artifacts.
-- The AI provider is behind an interface; additional providers (OpenAI, local) can be
-  added without touching the rest of the system.
+```bash
+npm run build     # compile TypeScript → dist/
+npm test          # build + run the unit test suite (22 tests)
+```
+
+- `.sentinel/`, `dist/`, and `node_modules/` are gitignored.
+- The AI provider sits behind a small interface, so additional providers (OpenAI,
+  local models) can be added without touching the rest of the system.
