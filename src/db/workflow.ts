@@ -41,12 +41,15 @@ export class WorkflowManagerImpl implements WorkflowManager {
     return new WorkflowManagerImpl(db, runId);
   }
 
-  createRun(input: { prNumber: number; repo: string; model?: string; guidance?: string }): RunRecord {
+  // Note: model is intentionally NOT persisted — it's resolved live on every run
+  // (flag → config → default), so storing it would only risk going stale. The
+  // `model` column is kept (always null) to avoid a schema migration.
+  createRun(input: { prNumber: number; repo: string; guidance?: string }): RunRecord {
     const ts = nowIso();
     this.db.prepare(
       `INSERT INTO run (id, pr_number, repo, model, guidance, state, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 'INIT', ?, ?)`
-    ).run(this.runId, input.prNumber, input.repo, input.model ?? null, input.guidance ?? null, ts, ts);
+       VALUES (?, ?, ?, NULL, ?, 'INIT', ?, ?)`
+    ).run(this.runId, input.prNumber, input.repo, input.guidance ?? null, ts, ts);
 
     const stepStmt = this.db.prepare(
       `INSERT INTO workflow_step (run_id, ordinal, name, status, updated_at) VALUES (?, ?, ?, 'pending', ?)`

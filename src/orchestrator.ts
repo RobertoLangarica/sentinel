@@ -47,8 +47,7 @@ export class Orchestrator {
     let run = options.resumeRunId
       ? wm.loadRun(options.resumeRunId)
       : wm.createRun({
-          prNumber: options.prNumber!, repo: 'pending',
-          model: options.model ?? DEFAULT_MODEL, guidance: options.guidance,
+          prNumber: options.prNumber!, repo: 'pending', guidance: options.guidance,
         });
 
     this.reporter.header(run.id);

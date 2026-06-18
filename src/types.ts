@@ -30,7 +30,7 @@ export interface StepRecord {
 }
 
 export interface WorkflowManager {
-  createRun(input: { prNumber: number; repo: string; model?: string; guidance?: string }): RunRecord;
+  createRun(input: { prNumber: number; repo: string; guidance?: string }): RunRecord;
   loadRun(runId: string): RunRecord;
   listRuns(limit?: number): Array<RunRecord & { ageLabel: string }>;
   markStep(runId: string, name: WorkflowState, status: StepRecord['status'], detail?: string): void;

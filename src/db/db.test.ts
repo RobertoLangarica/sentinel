@@ -40,11 +40,12 @@ test('getNextStep advances after marking a step done', () => {
 
 test('loadRun returns the persisted record', () => {
   const wm = WorkflowManagerImpl.memory('r3');
-  wm.createRun({ prNumber: 7, repo: 'o/n', model: 'm' });
+  wm.createRun({ prNumber: 7, repo: 'o/n' });
   const r = wm.loadRun('r3');
   assert.equal(r.prNumber, 7);
   assert.equal(r.repo, 'o/n');
-  assert.equal(r.model, 'm');
+  // model is intentionally NOT persisted (resolved live at run time)
+  assert.equal(r.model, undefined);
 });
 
 test('KB query by category filters correctly', () => {
