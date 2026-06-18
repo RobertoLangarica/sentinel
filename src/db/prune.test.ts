@@ -51,3 +51,30 @@ test('pruneRuns --all removes everything', () => {
   assert.equal(WorkflowManagerImpl.listRuns().length, 0);
   cleanup();
 });
+
+test('findLatestRunForPR prefers an unfinished run for that PR', async () => {
+  cleanup();
+  // Two runs for PR 1 (one done, one active) and one for PR 2.
+  makeRun('DONE');            // PR 1
+  await new Promise(r => setTimeout(r, 5));
+  const active = makeRun('GENERATE'); // PR 1, newer + unfinished
+  const wm2 = WorkflowManagerImpl.create();
+  wm2.createRun({ prNumber: 2, repo: 'a/b' }); wm2.db.close();
+
+  const found = WorkflowManagerImpl.findLatestRunForPR(1);
+  assert.ok(found);
+  assert.equal(found!.id, active);          // unfinished one wins
+  assert.equal(WorkflowManagerImpl.findLatestRunForPR(999), null); // no run
+  cleanup();
+});
+
+test('findLatestRunForPR falls back to latest finished when none active', () => {
+  cleanup();
+  const done = makeRun('DONE'); // PR 1
+  const found = WorkflowManagerImpl.findLatestRunForPR(1);
+  assert.ok(found);
+  assert.equal(found!.id, done);
+  // unfinishedOnly returns null when all are finished
+  assert.equal(WorkflowManagerImpl.findLatestRunForPR(1, { unfinishedOnly: true }), null);
+  cleanup();
+});

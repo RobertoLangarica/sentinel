@@ -110,6 +110,20 @@ export class WorkflowManagerImpl implements WorkflowManager {
   // Instance method to satisfy interface; delegates to static.
   listRuns(limit = 20) { return WorkflowManagerImpl.listRuns(limit); }
 
+  // Find the most recent run for a PR. By default prefers an unfinished run
+  // (anything not DONE), falling back to the latest run of any state.
+  static findLatestRunForPR(
+    prNumber: number,
+    opts: { unfinishedOnly?: boolean } = {},
+  ): (RunRecord & { ageLabel: string }) | null {
+    const all = WorkflowManagerImpl.listRuns(Number.MAX_SAFE_INTEGER)
+      .filter(r => r.prNumber === prNumber); // already sorted newest-first
+    if (!all.length) return null;
+    const unfinished = all.filter(r => r.state !== 'DONE');
+    if (opts.unfinishedOnly) return unfinished[0] ?? null;
+    return unfinished[0] ?? all[0];
+  }
+
   // Delete a single run's DB file. Returns true if it existed and was removed.
   static deleteRun(runId: string): boolean {
     const path = join(RUNS_DIR, `${runId}.db`);

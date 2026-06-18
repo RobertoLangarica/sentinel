@@ -159,14 +159,22 @@ sentinel runs rm a3f2-keen-check    # remove specific run(s) by id
 (Deleting a run only removes local history — it never touches anything on GitHub.)
 
 
-### If something fails mid-run
+### If something fails mid-run (resuming)
 
-Network hiccup? API error? Nothing is lost. Sentinel saves progress at every step:
+Network hiccup? API error? Nothing is lost — Sentinel saves progress at every step.
+You have two ways to resume:
 
 ```bash
-sentinel runs                                # find the run id (e.g. a3f2-keen-check)
-sentinel review --resume a3f2-keen-check      # picks up where it left off
+# Easiest: resume the latest run for a PR (no need to look up the id)
+sentinel review 123 --resume
+
+# Or resume a specific run by id (from `sentinel runs`)
+sentinel review --resume a3f2-keen-check
 ```
+
+`sentinel review 123 --resume` finds the most recent run for PR #123 (preferring one
+that isn't finished) and continues it — instead of starting a brand-new run. Without
+`--resume`, `sentinel review 123` always starts a fresh run.
 
 ---
 

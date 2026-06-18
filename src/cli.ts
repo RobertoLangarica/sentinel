@@ -17,17 +17,39 @@ program
   .command('review')
   .description('Review a PR (interactive by default)')
   .argument('[pr-number]', 'PR number to review', (v) => parseInt(v, 10))
-  .option('--resume <run-id>', 'Resume an interrupted run')
+  .option('--resume [run-id]', 'Resume a run. With a run-id, resumes that run. With just a PR number (e.g. `review 123 --resume`), resumes the latest run for that PR.')
   .option('--guidance <text>', 'Add specific guidance/constraints')
   .option('--no-guidance', 'Skip the interactive guidance prompt')
   .option('-y, --yes', 'Skip all interactive prompts (automation)')
   .option('--model <name>', 'Override AI model')
   .action(async (prNumber: number | undefined, opts: any) => {
+    const pr = Number.isNaN(prNumber as number) ? undefined : prNumber;
+
+    // Resolve --resume:
+    //   --resume <run-id>  → resume that exact run
+    //   <pr> --resume      → resume the latest run for that PR (opts.resume === true)
+    let resumeRunId: string | undefined;
+    if (typeof opts.resume === 'string') {
+      resumeRunId = opts.resume;
+    } else if (opts.resume === true) {
+      if (pr == null) {
+        console.error(chalk.red('✗ `--resume` without a run-id needs a PR number, e.g. `sentinel review 123 --resume`.'));
+        process.exit(2);
+      }
+      const latest = WorkflowManagerImpl.findLatestRunForPR(pr);
+      if (!latest) {
+        console.error(chalk.red(`✗ No existing run found for PR #${pr}. Run \`sentinel review ${pr}\` to start one.`));
+        process.exit(2);
+      }
+      resumeRunId = latest.id;
+      console.log(chalk.dim(`Resuming run ${latest.id} (PR #${pr}, ${latest.state}).`));
+    }
+
     // commander: --no-guidance sets opts.guidance to false; --guidance "x" sets a string.
     const guidanceProvided = typeof opts.guidance === 'string';
     const options: ReviewOptions = {
-      prNumber: Number.isNaN(prNumber as number) ? undefined : prNumber,
-      resumeRunId: opts.resume,
+      prNumber: pr,
+      resumeRunId,
       guidance: guidanceProvided ? opts.guidance : undefined,
       interactive: !opts.yes,
       promptGuidance: opts.guidance === false ? false : !opts.yes,
