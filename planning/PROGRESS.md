@@ -8,8 +8,8 @@
 | Level | File | Status |
 |-------|------|--------|
 | Level 1 — Scope, UX & Stack | `level-1-scope.md` | ✅ Complete |
-| Level 2 — Architecture | `level-2-architecture.md` | 🔄 In Progress |
-| Level 3 — Implementation | `level-3*.md` | ⏳ Pending |
+| Level 2 — Architecture | `level-2-architecture.md` | ✅ Complete |
+| Level 3 — Implementation | `level-3*.md` | 🔄 In Progress |
 | Task Lists | `tasks/` | ⏳ Pending |
 
 ## Master Checklist
@@ -17,8 +17,8 @@
 - [x] Project explored
 - [x] Progress tracker created
 - [x] Level 1 confirmed
-- [ ] Level 2 confirmed
-- [ ] Coverage check passed
+- [x] Level 2 confirmed
+- [x] Coverage check passed
 - [ ] Level 3 plans written
 - [ ] Task lists generated
 - [ ] All files pushed to git
