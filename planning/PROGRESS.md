@@ -9,8 +9,8 @@
 |-------|------|--------|
 | Level 1 — Scope, UX & Stack | `level-1-scope.md` | ✅ Complete |
 | Level 2 — Architecture | `level-2-architecture.md` | ✅ Complete |
-| Level 3 — Implementation | `level-3*.md` | 🔄 In Progress |
-| Task Lists | `tasks/` | ⏳ Pending |
+| Level 3 — Implementation | `level-3a-foundation.md`, `level-3b-app.md` | ✅ Complete |
+| Task Lists | `tasks/` | ✅ Complete |
 
 ## Master Checklist
 
@@ -19,8 +19,8 @@
 - [x] Level 1 confirmed
 - [x] Level 2 confirmed
 - [x] Coverage check passed
-- [ ] Level 3 plans written
-- [ ] Task lists generated
+- [x] Level 3 plans written
+- [x] Task lists generated
 - [ ] All files pushed to git
 
 ## Key Decisions Log (Pre-Level-1)
