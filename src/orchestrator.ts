@@ -6,7 +6,9 @@ import { AnthropicProvider, DEFAULT_MODEL } from './ai/provider.js';
 import { AIProviderImpl } from './ai/agent.js';
 import { ConsoleReporter } from './reporter.js';
 import { extractRepoEntries, extractPrGoal } from './extract.js';
+import { getConfiguredModel } from './config.js';
 import { ValidationError } from './types.js';
+
 import type {
   ReviewOptions, RunResult, GitHubClient, AIProvider, Reporter, ReviewIssue,
 } from './types.js';
@@ -106,10 +108,15 @@ export class Orchestrator {
             const existing = await this.github.findSentinelComment(run.prNumber);
             const priorMeta = existing ? parseCommentBody(existing.body) : null;
 
+            // Resolve the model at run time so the current config/flag always wins —
+            // never frozen to whatever was persisted when the run was created.
+            // Order: --model flag → live config → run's stored value → built-in default.
+            const model = options.model ?? getConfiguredModel() ?? run.model ?? DEFAULT_MODEL;
+
             const review = await this.ai.generateReview({
               pr, diff, changedFiles: files,
               tools: [kb.getQueryTool(run.id)],
-              model: run.model,
+              model,
               priorIssues: priorMeta?.issues,
               priorReviewedSha: priorMeta?.reviewedSha,
             });

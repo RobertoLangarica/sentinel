@@ -164,7 +164,12 @@ sentinel review --resume a3f2-keen-check      # picks up where it left off
 
 Config file: `~/.config/sentinel/config.json`
 
-**Key resolution order:** `--model`/explicit → config file → environment variable → built-in default.
+**API key resolution:** config file → `ANTHROPIC_API_KEY` env var.
+
+**Model resolution (evaluated live on every run, including `--resume`):**
+`--model` flag → config file (`set-model`) → the run's stored value → built-in default.
+So changing your configured model takes effect immediately — even when resuming an
+older run.
 
 ---
 
