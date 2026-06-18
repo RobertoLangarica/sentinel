@@ -195,6 +195,21 @@ npm run build     # compile TypeScript → dist/
 npm test          # build + run the unit test suite (22 tests)
 ```
 
+**After you change the source code:**
+
+- **Rebuild — yes.** The `sentinel` command runs the compiled code in `dist/`, so any
+  change to `src/` needs `npm run build` to take effect.
+- **Re-link — no.** `npm link` created a symlink to this folder; it automatically uses
+  the fresh `dist/`. You only need to `npm link` again if you move or rename the
+  project directory.
+
+```bash
+git pull          # if you grabbed new changes
+npm install       # only if dependencies changed
+npm run build     # always, to refresh dist/
+# `sentinel` is ready — no re-link needed
+```
+
 - `.sentinel/`, `dist/`, and `node_modules/` are gitignored.
 - The AI provider sits behind a small interface, so additional providers (OpenAI,
   local models) can be added without touching the rest of the system.
