@@ -130,7 +130,9 @@ export interface GenerateReviewInput {
   model?: string;
   priorIssues?: ReviewIssue[];
   priorReviewedSha?: string;
+  guidance?: string;        // user guidance + any regenerate calibration message
 }
+
 
 export interface GeneratedReview {
   markdown: string;
@@ -182,6 +184,7 @@ export interface Reporter {
   previewReview(markdown: string): void;
   promptGuidance(): Promise<string | undefined>;
   promptApproval(): Promise<ApprovalChoice>;
+  promptRegenerateMessage(): Promise<string | undefined>;
   openInEditor(markdown: string): Promise<string>;
   result(opts: { url?: string; sha?: string; failed?: boolean; message?: string }): void;
 }

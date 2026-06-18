@@ -39,13 +39,21 @@ class FakeAI implements AIProvider {
 }
 
 class HeadlessReporter implements Reporter {
-  constructor(private approval: 'approve' | 'cancel' = 'approve') {}
+  // approvals: a queue of choices; the last one repeats. Default: always approve.
+  private i = 0;
+  constructor(private approvals: Array<'approve' | 'cancel' | 'regenerate'> = ['approve']) {}
+  regenMessage: string | undefined = 'be stricter on security';
   header() {}
   step() { return { succeed() {}, fail() {} }; }
   panel() {}
   previewReview() {}
   async promptGuidance() { return undefined; }
-  async promptApproval() { return this.approval; }
+  async promptApproval() {
+    const c = this.approvals[Math.min(this.i, this.approvals.length - 1)];
+    this.i++;
+    return c;
+  }
+  async promptRegenerateMessage() { return this.regenMessage; }
   async openInEditor(md: string) { return md; }
   result() {}
 }
@@ -82,10 +90,24 @@ test('cancel at approval returns FAILED with no post', async () => {
   cleanup();
   const github = new FakeGitHub(null);
   const ai = new FakeAI();
-  const res = await new Orchestrator({ github, ai, reporter: new HeadlessReporter('cancel') })
+  const res = await new Orchestrator({ github, ai, reporter: new HeadlessReporter(['cancel']) })
     .run({ ...baseOpts, interactive: true });
   assert.equal(res.state, 'FAILED');
   assert.equal(github.created.length, 0);
+  cleanup();
+});
+
+test('regenerate calibration message is passed as guidance on the next generation', async () => {
+  cleanup();
+  const github = new FakeGitHub(null);
+  const ai = new FakeAI();
+  // First approval = regenerate (with a calibration message), second = approve.
+  const reporter = new HeadlessReporter(['regenerate', 'approve']);
+  reporter.regenMessage = 'focus on error handling';
+  const res = await new Orchestrator({ github, ai, reporter }).run({ ...baseOpts, interactive: true });
+  assert.equal(res.state, 'DONE');
+  // The second generation should have received the calibration as guidance.
+  assert.match(ai.lastInput.guidance ?? '', /focus on error handling/);
   cleanup();
 });
 

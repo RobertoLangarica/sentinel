@@ -113,9 +113,14 @@ Run ID: a3f2-keen-check          ← a name for this run (used to resume later)
 ? What next?           ← YOU are in control here; nothing is posted yet
   ❯ Approve and post to GitHub
     Edit review in $EDITOR
-    Regenerate review
+    Regenerate review       ← then you can add a message to steer the rewrite
     Cancel
 ```
+
+When you pick **Regenerate**, Sentinel asks *"What should change?"* — type a short
+calibration message (e.g. "focus on error handling, ignore style nits") and it
+regenerates with that guidance. Press Enter to just regenerate as-is. Calibration
+messages accumulate across multiple regenerations.
 
 Pick **Approve**, and Sentinel posts the review as a comment on PR #123, stamped with
 the commit it reviewed. Done.
@@ -220,7 +225,7 @@ makes runs **resumable** and what `sentinel runs` reads from.
 
 ```bash
 npm run build     # compile TypeScript → dist/
-npm test          # build + run the unit test suite (27 tests)
+npm test          # build + run the unit test suite (28 tests)
 ```
 
 **After you change the source code:**

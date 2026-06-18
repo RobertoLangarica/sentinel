@@ -54,6 +54,9 @@ export class Orchestrator {
 
     try {
       let next = wm.getNextStep(run.id);
+      // Optional calibration message supplied when the user chooses "Regenerate".
+      // Combined with the run's stored guidance and fed to the next generation.
+      let calibration: string | undefined;
 
       while (next !== 'DONE') {
         wm.setRunState(run.id, next);
@@ -114,12 +117,16 @@ export class Orchestrator {
             // must use the *current* default, not a value baked in when it was created.
             const model = options.model ?? getConfiguredModel() ?? DEFAULT_MODEL;
 
+            // Combine the run's stored guidance with any regenerate calibration message.
+            const combinedGuidance = [run.guidance, calibration].filter(Boolean).join('\n') || undefined;
+
             const review = await this.ai.generateReview({
               pr, diff, changedFiles: files,
               tools: [kb.getQueryTool(run.id)],
               model,
               priorIssues: priorMeta?.issues,
               priorReviewedSha: priorMeta?.reviewedSha,
+              guidance: combinedGuidance,
             });
 
             // Persist review + issues.
@@ -157,6 +164,9 @@ export class Orchestrator {
                 markdown = await this.reporter.openInEditor(markdown);
                 wm.db.prepare(`UPDATE review SET markdown = ? WHERE run_id = ?`).run(markdown, run.id);
               } else if (choice === 'regenerate') {
+                // Let the user calibrate the next attempt with a short message.
+                const msg = await this.reporter.promptRegenerateMessage();
+                if (msg) calibration = [calibration, msg].filter(Boolean).join('\n');
                 // Reset GENERATE + APPROVE to pending and break out to re-run loop.
                 wm.markStep(run.id, 'GENERATE', 'pending');
                 wm.markStep(run.id, 'APPROVE', 'pending');

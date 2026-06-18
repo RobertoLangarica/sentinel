@@ -17,6 +17,9 @@ export class AIProviderImpl implements AIProvider {
     const userParts = [
       `PR #${input.pr.number}: ${input.pr.title}`,
       `Goal (from description):\n${input.pr.body || '(none)'}`,
+      input.guidance
+        ? `Reviewer guidance (follow this closely; it may calibrate or override defaults):\n${input.guidance}`
+        : '',
       input.priorIssues?.length
         ? `Prior issues (reviewed at ${input.priorReviewedSha?.slice(0, 7)}); classify each resolved/open:\n${JSON.stringify(input.priorIssues, null, 2)}`
         : '',

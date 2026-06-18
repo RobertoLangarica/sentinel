@@ -54,6 +54,14 @@ export class ConsoleReporter implements Reporter {
     return (choice ?? 'cancel') as ApprovalChoice;
   }
 
+  async promptRegenerateMessage(): Promise<string | undefined> {
+    const { text } = await prompts({
+      type: 'text', name: 'text',
+      message: 'What should change? (calibrate the next review — Enter to just regenerate):',
+    });
+    return text?.trim() ? text.trim() : undefined;
+  }
+
   async openInEditor(markdown: string): Promise<string> {
     const editor = process.env.EDITOR;
     if (!editor) {
