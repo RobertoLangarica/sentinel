@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { mkdirSync, readdirSync, existsSync } from 'node:fs';
+import { mkdirSync, readdirSync, existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { initSchema, STEP_ORDER } from './schema.js';
 import { generateRunId } from './ids.js';
@@ -109,7 +109,30 @@ export class WorkflowManagerImpl implements WorkflowManager {
 
   // Instance method to satisfy interface; delegates to static.
   listRuns(limit = 20) { return WorkflowManagerImpl.listRuns(limit); }
+
+  // Delete a single run's DB file. Returns true if it existed and was removed.
+  static deleteRun(runId: string): boolean {
+    const path = join(RUNS_DIR, `${runId}.db`);
+    if (!existsSync(path)) return false;
+    rmSync(path, { force: true });
+    return true;
+  }
+
+  // Prune runs. By default removes only finished runs (DONE/FAILED);
+  // pass { all: true } to remove every run. Returns the deleted run ids.
+  static pruneRuns(opts: { all?: boolean } = {}): string[] {
+    const runs = WorkflowManagerImpl.listRuns(Number.MAX_SAFE_INTEGER);
+    const targets = opts.all
+      ? runs
+      : runs.filter(r => r.state === 'DONE' || r.state === 'FAILED');
+    const deleted: string[] = [];
+    for (const r of targets) {
+      if (WorkflowManagerImpl.deleteRun(r.id)) deleted.push(r.id);
+    }
+    return deleted;
+  }
 }
+
 
 function ageLabel(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();

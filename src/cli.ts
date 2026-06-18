@@ -79,19 +79,45 @@ config
   .action(() => console.log(CONFIG_PATH));
 
 
-program
+const runs = program
   .command('runs')
   .description('List recent review runs')
   .option('--limit <n>', 'Max runs to show', (v) => parseInt(v, 10), 20)
   .action((opts: { limit: number }) => {
-    const runs = WorkflowManagerImpl.listRuns(opts.limit);
-    if (!runs.length) { console.log(chalk.dim('No runs yet.')); return; }
+    const list = WorkflowManagerImpl.listRuns(opts.limit);
+    if (!list.length) { console.log(chalk.dim('No runs yet.')); return; }
     console.log(chalk.bold('\nRecent review runs:\n'));
-    for (const r of runs) {
+    for (const r of list) {
       console.log(`  ${chalk.cyan(r.id.padEnd(24))} PR #${String(r.prNumber).padEnd(6)} ${stateColor(r.state)} ${chalk.dim(r.ageLabel)}`);
     }
-    console.log(chalk.dim("\nUse 'sentinel review --resume <run-id>' to continue.\n"));
+    console.log(chalk.dim("\nResume:  sentinel review --resume <run-id>"));
+    console.log(chalk.dim("Clean:   sentinel runs prune   (removes finished runs)\n"));
   });
+
+runs
+  .command('rm')
+  .description('Delete one or more runs by id')
+  .argument('<run-ids...>', 'Run id(s) to delete')
+  .action((ids: string[]) => {
+    let removed = 0;
+    for (const id of ids) {
+      if (WorkflowManagerImpl.deleteRun(id)) { console.log(chalk.green(`✓ removed ${id}`)); removed++; }
+      else console.log(chalk.yellow(`• not found: ${id}`));
+    }
+    console.log(chalk.dim(`\n${removed} run(s) removed.`));
+  });
+
+runs
+  .command('prune')
+  .description('Remove finished runs (DONE/FAILED). Use --all to remove every run.')
+  .option('--all', 'Remove ALL runs, including in-progress ones')
+  .action((opts: { all?: boolean }) => {
+    const deleted = WorkflowManagerImpl.pruneRuns({ all: opts.all });
+    if (!deleted.length) { console.log(chalk.dim('Nothing to prune.')); return; }
+    for (const id of deleted) console.log(chalk.green(`✓ removed ${id}`));
+    console.log(chalk.dim(`\n${deleted.length} run(s) pruned${opts.all ? ' (all)' : ' (finished only)'}.`));
+  });
+
 
 function stateColor(state: string): string {
   if (state === 'DONE') return chalk.green(state.padEnd(10));

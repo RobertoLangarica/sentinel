@@ -135,12 +135,29 @@ sentinel config show                         # check your setup
 sentinel --help                              # see everything
 ```
 
-### Re-reviewing the same PR
+### Re-reviewing the same PR (a "re-run")
 
-Just run `sentinel review 123` again after new commits land. Sentinel finds its own
-previous comment and **edits it in place** (no duplicate spam): it marks issues you've
-fixed as resolved, keeps the ones still open, adds anything new, and updates the commit
-stamp.
+There's no special command — **just run `sentinel review 123` again**. Sentinel finds
+its own previous comment and **edits it in place** (no duplicate spam): it marks issues
+you've fixed as resolved, keeps the ones still open, adds anything new, and updates the
+commit stamp. Each re-run is a fresh run id (you'll see it in `sentinel runs`).
+
+To force a specific model on a re-run: `sentinel review 123 --model <name>`.
+
+### Managing / pruning runs
+
+Every run leaves a small SQLite file in `.sentinel/runs/`. They're harmless (and
+gitignored), but you can clean them up:
+
+```bash
+sentinel runs                       # list runs
+sentinel runs prune                 # remove FINISHED runs (DONE/FAILED)
+sentinel runs prune --all           # remove ALL runs, including in-progress
+sentinel runs rm a3f2-keen-check    # remove specific run(s) by id
+```
+
+(Deleting a run only removes local history — it never touches anything on GitHub.)
+
 
 ### If something fails mid-run
 
