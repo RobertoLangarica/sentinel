@@ -110,8 +110,10 @@ export class Orchestrator {
 
             // Resolve the model at run time so the current config/flag always wins —
             // never frozen to whatever was persisted when the run was created.
-            // Order: --model flag → live config → run's stored value → built-in default.
-            const model = options.model ?? getConfiguredModel() ?? run.model ?? DEFAULT_MODEL;
+            // Order: --model flag → live config → built-in default.
+            // NOTE: we intentionally do NOT fall back to run.model — a resumed run
+            // must use the *current* default, not a value baked in when it was created.
+            const model = options.model ?? getConfiguredModel() ?? DEFAULT_MODEL;
 
             const review = await this.ai.generateReview({
               pr, diff, changedFiles: files,

@@ -195,9 +195,9 @@ Config file: `~/.config/sentinel/config.json`
 **API key resolution:** config file → `ANTHROPIC_API_KEY` env var.
 
 **Model resolution (evaluated live on every run, including `--resume`):**
-`--model` flag → config file (`set-model`) → the run's stored value → built-in default.
-So changing your configured model takes effect immediately — even when resuming an
-older run.
+`--model` flag → config file (`set-model`) → built-in default.
+The model is **never** read from a run's stored value, so resuming an old run always
+uses your current default/config — you'll never get stuck on a stale model.
 
 ---
 
