@@ -110,7 +110,8 @@ const runs = program
     if (!list.length) { console.log(chalk.dim('No runs yet.')); return; }
     console.log(chalk.bold('\nRecent review runs:\n'));
     for (const r of list) {
-      console.log(`  ${chalk.cyan(r.id.padEnd(24))} PR #${String(r.prNumber).padEnd(6)} ${stateColor(r.state)} ${chalk.dim(r.ageLabel)}`);
+      const kb = r.kbExtractedSha ? chalk.dim(` kb@${r.kbExtractedSha.slice(0, 7)}`) : '';
+      console.log(`  ${chalk.cyan(r.id.padEnd(24))} PR #${String(r.prNumber).padEnd(6)} ${stateColor(r.state)} ${chalk.dim(r.ageLabel)}${kb}`);
     }
     console.log(chalk.dim("\nResume:  sentinel review --resume <run-id>"));
     console.log(chalk.dim("Clean:   sentinel runs prune   (removes finished runs)\n"));

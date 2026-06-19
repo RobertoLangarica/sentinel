@@ -5,7 +5,7 @@ import { buildCommentBody, parseCommentBody } from './github/comment.js';
 import { AnthropicProvider, DEFAULT_MODEL } from './ai/provider.js';
 import { AIProviderImpl } from './ai/agent.js';
 import { ConsoleReporter } from './reporter.js';
-import { extractRepoEntries, extractPrGoal } from './extract.js';
+import { extractRepoEntries, extractPrGoal, getRepoHeadSha } from './extract.js';
 import { getConfiguredModel } from './config.js';
 import { ValidationError } from './types.js';
 
@@ -53,6 +53,49 @@ export class Orchestrator {
     this.reporter.header(run.id);
 
     try {
+      // ─── Resume reconciliation ──────────────────────────────────────────
+      // On resume, redo any work that's gone stale:
+      //   1) KB drift — the repo's docs changed since we extracted → re-extract
+      //      and re-review (the rules driving the review may have changed).
+      //   2) DONE run — re-check the PR: if it has new commits (or the KB drifted)
+      //      re-review and update the comment; if the same commit was already
+      //      reviewed and the KB is current, there's nothing to do.
+      if (options.resumeRunId) {
+        const currentRepoSha = getRepoHeadSha();
+        // Missing kbExtractedSha (old runs) is treated as stale so we refresh it.
+        const kbStale = currentRepoSha != null && run.kbExtractedSha !== currentRepoSha;
+
+        if (kbStale) {
+          this.reporter.panel(
+            'KB refresh',
+            `Repo changed since the knowledge base was extracted` +
+            `${run.kbExtractedSha ? ` (${run.kbExtractedSha.slice(0, 7)} → ${currentRepoSha!.slice(0, 7)})` : ''}.` +
+            ` Re-extracting and re-reviewing.`,
+          );
+          for (const step of ['EXTRACT', 'GENERATE', 'APPROVE', 'POST'] as const) {
+            wm.markStep(run.id, step, 'pending');
+          }
+        }
+
+        if (run.state === 'DONE') {
+          const pr = await this.github.getPR(run.prNumber);
+          const reviewedRow: any = wm.db.prepare(`SELECT reviewed_sha FROM review WHERE run_id = ?`).get(run.id);
+          const reviewedSha: string | undefined = reviewedRow?.reviewed_sha;
+
+          if (!kbStale && reviewedSha && reviewedSha === pr.headSha) {
+            this.reporter.panel(
+              'Up to date',
+              `PR #${pr.number} is unchanged since the last review (commit ${pr.headSha.slice(0, 7)}). Nothing to do.`,
+            );
+            return { runId: run.id, state: 'DONE', reviewedSha };
+          }
+          // New commits (or stale KB) → re-review and update the existing comment.
+          for (const step of ['GENERATE', 'APPROVE', 'POST'] as const) {
+            wm.markStep(run.id, step, 'pending');
+          }
+        }
+      }
+
       let next = wm.getNextStep(run.id);
       // Optional calibration message supplied when the user chooses "Regenerate".
       // Combined with the run's stored guidance and fed to the next generation.
@@ -79,10 +122,20 @@ export class Orchestrator {
           case 'EXTRACT': {
             const s = this.reporter.step('Extracting repo knowledge…');
             const pr = await this.github.getPR(run.prNumber);
+            // Idempotent: wipe any prior KB so a re-extract (e.g. on resume after the
+            // repo's docs changed) fully replaces it rather than duplicating entries.
+            wm.db.prepare(`DELETE FROM kb_entry WHERE run_id = ?`).run(run.id);
             const { entries, filesRead } = extractRepoEntries();
             kb.addEntries(run.id, entries);
             kb.addEntry(run.id, extractPrGoal(pr));
-            s.succeed(`Knowledge extracted (${entries.length} entries from ${filesRead.length} files)`);
+            // Keep stored user-guidance in the KB even after a wipe.
+            if (run.guidance) {
+              kb.reinforce(run.id, { category: 'constraint', subject: 'user-guidance', content: run.guidance, source: 'user-guidance' });
+            }
+            // Record the repo commit this KB was extracted from, for drift detection.
+            const repoSha = getRepoHeadSha();
+            wm.db.prepare(`UPDATE run SET kb_extracted_sha = ? WHERE id = ?`).run(repoSha, run.id);
+            s.succeed(`Knowledge extracted (${entries.length} entries from ${filesRead.length} files${repoSha ? ` @ ${repoSha.slice(0, 7)}` : ''})`);
             this.reporter.panel('Learned Rules', summarizeKb(kb.all(run.id)));
             wm.markStep(run.id, 'EXTRACT', 'done');
             break;

@@ -184,6 +184,19 @@ sentinel review --resume a3f2-keen-check
 that isn't finished) and continues it — instead of starting a brand-new run. Without
 `--resume`, `sentinel review 123` always starts a fresh run.
 
+**Resuming is smart — it never serves you stale results:**
+
+- **Stale knowledge base** — Sentinel records the repo commit it extracted your rules
+  from (`README`, `AGENTS.md`, etc.). If those docs changed since (e.g. you strengthened
+  `AGENTS.md`), resuming **automatically re-extracts** the KB and re-reviews with the
+  fresh rules. No flag needed. You'll see the commit it learned from in `sentinel runs`
+  as `kb@abc1234`.
+- **Already-finished (DONE) runs** — resuming re-checks the PR:
+  - If the PR has **new commits** since the last review (or the KB drifted), it
+    **re-reviews and updates** the existing comment.
+  - If the PR is **unchanged** since the last review **and** the KB is current, it does
+    **nothing** ("PR unchanged — nothing to do").
+
 ---
 
 ## Configuration reference
@@ -225,7 +238,7 @@ makes runs **resumable** and what `sentinel runs` reads from.
 
 ```bash
 npm run build     # compile TypeScript → dist/
-npm test          # build + run the unit test suite (28 tests)
+npm test          # build + run the unit test suite (30 tests)
 ```
 
 **After you change the source code:**

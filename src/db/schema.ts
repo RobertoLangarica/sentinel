@@ -3,7 +3,7 @@ import type Database from 'better-sqlite3';
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS run (
   id TEXT PRIMARY KEY, pr_number INTEGER NOT NULL, repo TEXT NOT NULL,
-  head_sha TEXT, model TEXT, guidance TEXT, state TEXT NOT NULL,
+  head_sha TEXT, kb_extracted_sha TEXT, model TEXT, guidance TEXT, state TEXT NOT NULL,
   error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS workflow_step (
@@ -31,6 +31,18 @@ CREATE INDEX IF NOT EXISTS idx_issue_run ON review_issue(run_id);
 
 export function initSchema(db: Database.Database): void {
   db.exec(SCHEMA_SQL);
+  migrate(db);
+}
+
+// Idempotent, additive migrations for run DBs created before a column existed.
+// SQLite has no "ADD COLUMN IF NOT EXISTS", so we check PRAGMA table_info first.
+function migrate(db: Database.Database): void {
+  const cols = new Set(
+    (db.prepare(`PRAGMA table_info(run)`).all() as any[]).map(c => c.name),
+  );
+  if (!cols.has('kb_extracted_sha')) {
+    db.exec(`ALTER TABLE run ADD COLUMN kb_extracted_sha TEXT`);
+  }
 }
 
 // Ordered workflow steps (used to seed workflow_step on createRun).
