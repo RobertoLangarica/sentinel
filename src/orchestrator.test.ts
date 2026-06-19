@@ -6,7 +6,9 @@ import { Orchestrator } from './orchestrator.js';
 import { buildCommentBody } from './github/comment.js';
 import type {
   GitHubClient, AIProvider, Reporter, PullRequest, IssueComment, GeneratedReview, ReviewOptions,
+  CalibrationInput, CalibrationResult,
 } from './types.js';
+
 
 function cleanup() {
   try { rmSync(join(process.cwd(), '.sentinel'), { recursive: true, force: true }); } catch { /* ignore */ }
@@ -45,8 +47,18 @@ class FakeGitHub implements GitHubClient {
 
 class FakeAI implements AIProvider {
   lastInput: any;
+  lastCalibration: CalibrationInput | undefined;
+  calibrationResult: CalibrationResult = {
+    acknowledgement: 'Got it — I will stop flagging that.',
+    rules: [{ directive: 'ignore', rule: 'the thing you asked to ignore' }],
+  };
   async generateReview(input: any) { this.lastInput = input; return review; }
+  async calibrate(input: CalibrationInput): Promise<CalibrationResult> {
+    this.lastCalibration = input;
+    return this.calibrationResult;
+  }
 }
+
 
 class HeadlessReporter implements Reporter {
   // approvals: a queue of choices; the last one repeats. Default: always approve.
@@ -64,9 +76,14 @@ class HeadlessReporter implements Reporter {
     return c;
   }
   async promptRegenerateMessage() { return this.regenMessage; }
+  lastCalibrationShown: CalibrationResult | undefined;
+  confirmCalibrationReturn = true;
+  showCalibration(result: CalibrationResult) { this.lastCalibrationShown = result; }
+  async confirmCalibration() { return this.confirmCalibrationReturn; }
   async openInEditor(md: string) { return md; }
   result() {}
 }
+
 
 const baseOpts: ReviewOptions = { prNumber: 1, interactive: false, promptGuidance: false };
 
@@ -121,7 +138,43 @@ test('regenerate calibration message is passed as guidance on the next generatio
   cleanup();
 });
 
+test('regenerate calibrates: shows rules, persists ignore directive, feeds it to next generation', async () => {
+  cleanup();
+  const github = new FakeGitHub(null);
+  const ai = new FakeAI();
+  ai.calibrationResult = {
+    acknowledgement: 'Understood — I will stop flagging the legacy logger import.',
+    rules: [{ directive: 'ignore', rule: 'legacy logger import' }],
+  };
+  const reporter = new HeadlessReporter(['regenerate', 'approve']);
+  reporter.regenMessage = 'stop flagging the legacy logger import';
+  const res = await new Orchestrator({ github, ai, reporter }).run({ ...baseOpts, interactive: true });
+  assert.equal(res.state, 'DONE');
+  // The model was asked to calibrate with the user's message.
+  assert.equal(ai.lastCalibration?.message, 'stop flagging the legacy logger import');
+  // The calibration result was surfaced to the user.
+  assert.equal(reporter.lastCalibrationShown?.rules[0].directive, 'ignore');
+  // The ignore directive was fed into the regenerated review's guidance.
+  assert.match(ai.lastInput.guidance ?? '', /Do NOT flag: legacy logger import/);
+  cleanup();
+});
+
+test('rejecting the calibration returns to the menu and does not regenerate', async () => {
+  cleanup();
+  const github = new FakeGitHub(null);
+  const ai = new FakeAI();
+  // regenerate → (reject calibration) → approve.
+  const reporter = new HeadlessReporter(['regenerate', 'approve']);
+  reporter.confirmCalibrationReturn = false;
+  const res = await new Orchestrator({ github, ai, reporter }).run({ ...baseOpts, interactive: true });
+  assert.equal(res.state, 'DONE');
+  // Only the initial generation ran — no calibration guidance applied.
+  assert.equal(ai.lastInput.guidance ?? '', '');
+  cleanup();
+});
+
 test('resuming a DONE run with no new commits does nothing', async () => {
+
   cleanup();
   const github = new FakeGitHub(null);
   const ai = new FakeAI();

@@ -219,12 +219,65 @@ export class Orchestrator {
               } else if (choice === 'regenerate') {
                 // Let the user calibrate the next attempt with a short message.
                 const msg = await this.reporter.promptRegenerateMessage();
-                if (msg) calibration = [calibration, msg].filter(Boolean).join('\n');
+                if (msg) {
+                  // Interactive calibration: ask the model what it understood and
+                  // which rules it will enforce/ignore, then show it to the user.
+                  const pr = await this.github.getPR(run.prNumber);
+                  const priorIssues: ReviewIssue[] = (wm.db
+                    .prepare(`SELECT * FROM review_issue WHERE run_id = ?`).all(run.id) as any[])
+                    .map(x => ({ severity: x.severity, category: x.category ?? undefined,
+                      file: x.file ?? undefined, location: x.location ?? undefined,
+                      message: x.message, status: x.status }));
+                  const cs = this.reporter.step('Calibrating…');
+                  let result;
+                  try {
+                    result = await this.ai.calibrate({
+                      pr,
+                      message: msg,
+                      rules: kb.all(run.id).filter(e =>
+                        e.category === 'constraint' || e.category === 'rule' || e.category === 'goal'),
+                      priorIssues,
+                      model: options.model ?? getConfiguredModel() ?? DEFAULT_MODEL,
+                    });
+                    cs.succeed('Calibrated');
+                  } catch (e: any) {
+                    cs.fail('Calibration failed — using your note as plain guidance');
+                    result = undefined;
+                  }
+
+                  if (result) {
+                    this.reporter.showCalibration(result);
+                    const ok = await this.reporter.confirmCalibration();
+                    if (!ok) {
+                      // User rejected the calibration — back to the preview menu.
+                      continue;
+                    }
+                    // Persist the effective rules as durable, high-weight constraints
+                    // so they survive re-extraction and outweigh repo-derived rules.
+                    for (const r of result.rules) {
+                      const content = r.directive === 'ignore'
+                        ? `IGNORE / do not flag: ${r.rule}`
+                        : `ENFORCE: ${r.rule}`;
+                      kb.reinforce(run.id, {
+                        category: 'constraint', subject: 'user-guidance',
+                        content, source: 'user-guidance', weight: 100,
+                      });
+                    }
+                    // Feed the explicit directives into the next generation as guidance.
+                    const directiveText = result.rules
+                      .map(r => r.directive === 'ignore' ? `Do NOT flag: ${r.rule}` : `Enforce: ${r.rule}`)
+                      .join('\n');
+                    calibration = [calibration, msg, directiveText].filter(Boolean).join('\n');
+                  } else {
+                    calibration = [calibration, msg].filter(Boolean).join('\n');
+                  }
+                }
                 // Reset GENERATE + APPROVE to pending and break out to re-run loop.
                 wm.markStep(run.id, 'GENERATE', 'pending');
                 wm.markStep(run.id, 'APPROVE', 'pending');
                 decided = true;
               } else { // cancel
+
                 this.reporter.result({ failed: true, message: `Cancelled — resume with: sentinel review --resume ${run.id}` });
                 return { runId: run.id, state: 'FAILED', error: 'cancelled' };
               }

@@ -141,6 +141,27 @@ export interface GeneratedReview {
   issues: ReviewIssue[];
 }
 
+// A single rule the agent will apply on the next review. `directive: 'ignore'`
+// means the reviewer asked Sentinel to stop flagging it (overrides repo rules).
+export interface CalibrationRule {
+  directive: 'enforce' | 'ignore';
+  rule: string;
+}
+
+export interface CalibrationInput {
+  pr: PullRequest;
+  message: string;          // what the reviewer asked to change ("ignore X", "be stricter on Y", …)
+  rules: KBEntry[];         // current constraints/rules/goals from the knowledge base
+  priorIssues?: ReviewIssue[];
+  model?: string;
+}
+
+export interface CalibrationResult {
+  acknowledgement: string;  // plain-language confirmation of what will change
+  rules: CalibrationRule[]; // the effective rule set Sentinel will apply next pass
+}
+
+
 export interface ProviderTurn {
   toolCalls?: Array<{ id: string; name: string; input: any }>;
   text?: string;
@@ -153,7 +174,11 @@ export interface Provider {
 
 export interface AIProvider {
   generateReview(input: GenerateReviewInput): Promise<GeneratedReview>;
+  // Interactive regenerate: given the reviewer's instruction + current rules,
+  // return an acknowledgement and the effective rule set for the next pass.
+  calibrate(input: CalibrationInput): Promise<CalibrationResult>;
 }
+
 
 // ─── CLI / Orchestrator ──────────────────────────────────────────────────────
 
@@ -186,7 +211,12 @@ export interface Reporter {
   promptGuidance(): Promise<string | undefined>;
   promptApproval(): Promise<ApprovalChoice>;
   promptRegenerateMessage(): Promise<string | undefined>;
+  // Show the model's acknowledgement + effective rule set during regenerate,
+  // then let the reviewer confirm before re-reviewing.
+  showCalibration(result: CalibrationResult): void;
+  confirmCalibration(): Promise<boolean>;
   openInEditor(markdown: string): Promise<string>;
+
   result(opts: { url?: string; sha?: string; failed?: boolean; message?: string }): void;
 }
 
