@@ -14,6 +14,7 @@ export interface RunRecord {
   prNumber: number;
   repo: string;            // "owner/name"
   headSha?: string;
+  kbExtractedSha?: string; // repo commit the KB was extracted from (drift detection)
   model?: string;
   guidance?: string;
   state: WorkflowState;

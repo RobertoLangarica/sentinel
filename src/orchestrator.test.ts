@@ -24,13 +24,23 @@ const review: GeneratedReview = {
 class FakeGitHub implements GitHubClient {
   created: string[] = [];
   updated: Array<{ id: number; body: string }> = [];
+  headSha = pr.headSha;          // mutable so tests can simulate new commits
   constructor(private existing: IssueComment | null = null) {}
-  async getPR() { return pr; }
+  async getPR() { return { ...pr, headSha: this.headSha }; }
   async getDiff() { return 'diff'; }
   async getChangedFiles() { return []; }
   async findSentinelComment() { return this.existing; }
-  async createComment(_n: number, body: string) { this.created.push(body); return { id: 9, body, author: 's', url: 'newurl' }; }
-  async updateComment(id: number, body: string) { this.updated.push({ id, body }); return { id, body, author: 's', url: 'editurl' }; }
+  async createComment(_n: number, body: string) {
+    this.created.push(body);
+    // Persist it so subsequent findSentinelComment() returns it (like real GitHub).
+    this.existing = { id: 9, body, author: 's', url: 'newurl' };
+    return this.existing;
+  }
+  async updateComment(id: number, body: string) {
+    this.updated.push({ id, body });
+    this.existing = { id, body, author: 's', url: 'editurl' };
+    return this.existing;
+  }
 }
 
 class FakeAI implements AIProvider {
@@ -108,6 +118,41 @@ test('regenerate calibration message is passed as guidance on the next generatio
   assert.equal(res.state, 'DONE');
   // The second generation should have received the calibration as guidance.
   assert.match(ai.lastInput.guidance ?? '', /focus on error handling/);
+  cleanup();
+});
+
+test('resuming a DONE run with no new commits does nothing', async () => {
+  cleanup();
+  const github = new FakeGitHub(null);
+  const ai = new FakeAI();
+  // First review → DONE, creates a comment.
+  const first = await new Orchestrator({ github, ai, reporter: new HeadlessReporter() }).run(baseOpts);
+  assert.equal(first.state, 'DONE');
+  assert.equal(github.created.length, 1);
+
+  // Resume the same run; PR head unchanged → no re-review, no new post.
+  const resumed = await new Orchestrator({ github, ai, reporter: new HeadlessReporter() })
+    .run({ resumeRunId: first.runId, interactive: false, promptGuidance: false });
+  assert.equal(resumed.state, 'DONE');
+  assert.equal(github.created.length, 1);   // unchanged
+  assert.equal(github.updated.length, 0);   // nothing posted
+  cleanup();
+});
+
+test('resuming a DONE run after new commits re-reviews and updates the comment', async () => {
+  cleanup();
+  const github = new FakeGitHub(null);
+  const ai = new FakeAI();
+  const first = await new Orchestrator({ github, ai, reporter: new HeadlessReporter() }).run(baseOpts);
+  assert.equal(first.state, 'DONE');
+
+  // Simulate a new commit pushed to the PR.
+  github.headSha = 'newsha789';
+  const resumed = await new Orchestrator({ github, ai, reporter: new HeadlessReporter() })
+    .run({ resumeRunId: first.runId, interactive: false, promptGuidance: false });
+  assert.equal(resumed.state, 'DONE');
+  assert.equal(resumed.reviewedSha, 'newsha789');   // reviewed the new commit
+  assert.equal(github.updated.length, 1);           // existing comment updated
   cleanup();
 });
 

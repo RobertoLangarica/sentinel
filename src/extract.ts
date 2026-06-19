@@ -1,6 +1,19 @@
 import { readFileSync, existsSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import type { KBEntry, PullRequest } from './types.js';
+
+// Current commit of the repo being reviewed (the cwd). Used to detect when the
+// repo's docs have changed so we can re-extract a stale KB. Returns null if the
+// directory isn't a git repo (extraction still works; drift just isn't tracked).
+export function getRepoHeadSha(root = process.cwd()): string | null {
+  try {
+    return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 
 const DOC_FILES = ['README.md', 'AGENTS.md', 'CONTRIBUTING.md', '.sentinel/rules.md'];
 

@@ -63,6 +63,7 @@ export class WorkflowManagerImpl implements WorkflowManager {
     if (!row) throw new NotFoundError(`Run ${runId} not found`);
     return {
       id: row.id, prNumber: row.pr_number, repo: row.repo, headSha: row.head_sha ?? undefined,
+      kbExtractedSha: row.kb_extracted_sha ?? undefined,
       model: row.model ?? undefined, guidance: row.guidance ?? undefined, state: row.state,
       error: row.error ?? undefined, createdAt: row.created_at, updatedAt: row.updated_at,
     };
@@ -101,6 +102,7 @@ export class WorkflowManagerImpl implements WorkflowManager {
         const r: any = db.prepare(`SELECT * FROM run LIMIT 1`).get();
         if (r) rows.push({
           id: r.id, prNumber: r.pr_number, repo: r.repo, headSha: r.head_sha ?? undefined,
+          kbExtractedSha: r.kb_extracted_sha ?? undefined,
           model: r.model ?? undefined, guidance: r.guidance ?? undefined, state: r.state,
           error: r.error ?? undefined, createdAt: r.created_at, updatedAt: r.updated_at,
           ageLabel: ageLabel(r.updated_at),
