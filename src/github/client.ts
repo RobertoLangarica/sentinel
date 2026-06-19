@@ -72,8 +72,15 @@ export class GitHubClientImpl implements GitHubClient {
     // Most recent comment carrying our marker wins.
     const match = [...comments].reverse().find(c => hasMarker(c.body ?? ''));
     if (!match) return null;
-    return { id: match.id, body: match.body, author: match.author?.login ?? '', url: match.url ?? '' };
+    // `gh pr view --json comments` returns a GraphQL *node* id (e.g.
+    // "IC_kwDO...") in `id`, but the REST endpoint used by updateComment needs
+    // the numeric database id. That numeric id lives at the end of the comment
+    // URL (".../#issuecomment-4747104134"), so derive it from there.
+    const url: string = match.url ?? '';
+    const id = numericCommentId(url, match.id);
+    return { id, body: match.body, author: match.author?.login ?? '', url };
   }
+
 
   async createComment(prNumber: number, body: string): Promise<IssueComment> {
     const out = await this.run(['pr', 'comment', String(prNumber), '--body', body]);
@@ -95,3 +102,16 @@ export class GitHubClientImpl implements GitHubClient {
     return { id: j.id, body: j.body, author: j.user?.login ?? '', url: j.html_url };
   }
 }
+
+// Extract the numeric REST comment id from a comment URL such as
+// "https://github.com/owner/repo/pull/83#issuecomment-4747104134".
+// Falls back to the supplied value if no numeric id can be parsed (which
+// preserves the previous behaviour rather than silently breaking).
+export function numericCommentId(url: string, fallback: unknown): number {
+  const m = /#issuecomment-(\d+)/.exec(url ?? '');
+  if (m) return Number(m[1]);
+  // Some sources already give a numeric id (string or number).
+  const n = Number(fallback);
+  return Number.isFinite(n) ? n : (fallback as number);
+}
+

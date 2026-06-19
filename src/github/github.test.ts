@@ -1,8 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildCommentBody, parseCommentBody, hasMarker, MARKER } from './comment.js';
-import { GitHubClientImpl } from './client.js';
+import { GitHubClientImpl, numericCommentId } from './client.js';
 import type { ReviewIssue } from '../types.js';
+
 
 const issues: ReviewIssue[] = [
   { severity: 'blocking', message: 'hardcoded secret', file: 'auth.ts', location: 'auth.ts:42', status: 'open' },
@@ -54,3 +55,33 @@ test('findSentinelComment returns null when no marker', async () => {
   const gh = new GitHubClientImpl(fakeRunner);
   assert.equal(await gh.findSentinelComment(5), null);
 });
+
+test('numericCommentId extracts the REST id from a comment URL', () => {
+  assert.equal(
+    numericCommentId('https://github.com/MirificAI/mirific/pull/83#issuecomment-4747104134', 'IC_kwDOSugZa88AAAABGvMPhg'),
+    4747104134,
+  );
+});
+
+test('numericCommentId falls back to a numeric value when URL has no id', () => {
+  assert.equal(numericCommentId('', 42), 42);
+});
+
+test('findSentinelComment derives numeric id from the comment URL (not the node id)', async () => {
+  // `gh pr view --json comments` gives a GraphQL node id + a URL with the numeric id.
+  const fakeRunner = async () => JSON.stringify({
+    comments: [
+      {
+        id: 'IC_kwDOSugZa88AAAABGvMPhg',
+        body: `${MARKER}\nreview`,
+        author: { login: 'b' },
+        url: 'https://github.com/MirificAI/mirific/pull/83#issuecomment-4747104134',
+      },
+    ],
+  });
+  const gh = new GitHubClientImpl(fakeRunner);
+  const found = await gh.findSentinelComment(83);
+  assert.ok(found);
+  assert.equal(found!.id, 4747104134);
+});
+
