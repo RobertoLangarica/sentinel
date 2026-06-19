@@ -6,7 +6,8 @@ import { writeFileSync, readFileSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import type { Reporter, ApprovalChoice } from './types.js';
+import type { Reporter, ApprovalChoice, CalibrationResult } from './types.js';
+
 
 export class ConsoleReporter implements Reporter {
   header(runId: string, prTitle?: string): void {
@@ -62,7 +63,38 @@ export class ConsoleReporter implements Reporter {
     return text?.trim() ? text.trim() : undefined;
   }
 
+  showCalibration(result: CalibrationResult): void {
+    const lines: string[] = [];
+    lines.push(chalk.bold('Sentinel:') + ' ' + result.acknowledgement);
+    if (result.rules.length) {
+      lines.push('');
+      lines.push(chalk.dim('Rules it will apply next pass:'));
+      for (const r of result.rules) {
+        const badge = r.directive === 'ignore'
+          ? chalk.red('✗ IGNORE')
+          : chalk.green('✓ ENFORCE');
+        lines.push(`  ${badge}  ${r.rule}`);
+      }
+    } else {
+      lines.push('');
+      lines.push(chalk.dim('(No explicit rule changes — regenerating with your note as guidance.)'));
+    }
+    console.log(boxen(lines.join('\n'), {
+      title: '🔧 Calibration', padding: 1, borderStyle: 'round', borderColor: 'magenta',
+    }));
+  }
+
+  async confirmCalibration(): Promise<boolean> {
+    const { ok } = await prompts({
+      type: 'confirm', name: 'ok',
+      message: 'Regenerate with these rules?',
+      initial: true,
+    });
+    return ok !== false;
+  }
+
   async openInEditor(markdown: string): Promise<string> {
+
     const editor = process.env.EDITOR;
     if (!editor) {
       console.log(chalk.yellow('⚠️  $EDITOR not set — keeping review unedited.'));
