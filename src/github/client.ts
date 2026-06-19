@@ -9,16 +9,30 @@ const exec = promisify(execFile);
 // Injectable runner makes this testable without the real `gh`.
 export type Runner = (args: string[]) => Promise<string>;
 
+// Enabled by the `--debug` flag (sets SENTINEL_DEBUG) or the env var directly.
+function debugEnabled(): boolean {
+  return process.env.SENTINEL_DEBUG === '1' || process.env.SENTINEL_DEBUG === 'true';
+}
+
 async function defaultRunner(args: string[]): Promise<string> {
+  const debug = debugEnabled();
+  if (debug) process.stderr.write(`[debug] gh ${args.join(' ')}\n`);
   try {
     const { stdout } = await exec('gh', args, { maxBuffer: 20 * 1024 * 1024 });
     return stdout;
   } catch (err: any) {
     const stderr = String(err?.stderr ?? err?.message ?? '');
+    if (debug) {
+      process.stderr.write(`[debug] gh ${args.join(' ')} failed (exit ${err?.code ?? '?'}):\n`);
+      process.stderr.write(stderr.trim() + '\n');
+    }
     if (/not logged|authentication|gh auth/i.test(stderr)) {
       throw new GitHubAuthError('GitHub CLI not authenticated. Run `gh auth login`.');
     }
-    if (/not found|Could not resolve/i.test(stderr)) throw new NotFoundError(stderr.trim());
+    if (/not found|Could not resolve/i.test(stderr)) {
+      // Surface the failing `gh` command so the 404 is actionable.
+      throw new NotFoundError(`${stderr.trim()} (while running: gh ${args.join(' ')})`);
+    }
     throw new GitHubExecError(stderr.trim() || 'gh command failed');
   }
 }
