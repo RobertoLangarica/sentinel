@@ -11,7 +11,11 @@ const program = new Command();
 program
   .name('sentinel')
   .description('🛡️  Sentinel — AI-powered PR reviewer')
-  .version('0.1.0');
+  .version('0.1.0')
+  .option('--debug', 'Verbose debug output (prints every `gh` command and full error output)')
+  .hook('preAction', (thisCommand) => {
+    if (thisCommand.opts().debug) process.env.SENTINEL_DEBUG = '1';
+  });
 
 program
   .command('review')
