@@ -6,12 +6,26 @@ import type {
 
 const MAX_TURNS = 8;
 
-const SYSTEM = `You are Sentinel, a concise senior code reviewer.
-Use the query_knowledge_base tool to check repo-specific rules/constraints before judging the diff.
-Be terse and high-signal. Output ONLY a JSON object when done (no prose), matching:
+const OUTPUT_SHAPE = `Output ONLY a JSON object when done (no prose), matching:
 { "summary": string, "markdown": string, "issues": [ { "severity": "blocking"|"warning"|"suggestion"|"note",
   "category"?: string, "file"?: string, "location"?: string, "message": string, "status": "open"|"resolved" } ] }
-"markdown" is the human-facing review body. On re-review, set status:"resolved" for prior issues that the new diff fixes.
+"markdown" is the human-facing review body.`;
+
+const SYSTEM = `You are Sentinel, a concise senior code reviewer.
+Use the query_knowledge_base tool to check repo-specific rules/constraints before judging the diff.
+Be terse and high-signal. ${OUTPUT_SHAPE}
+On re-review, set status:"resolved" for prior issues that the new diff fixes.
+IMPORTANT: Reviewer guidance is authoritative and OVERRIDES repo-derived rules/constraints. If the guidance
+says to ignore or stop flagging something, you MUST NOT raise it as an issue, even if a repo rule suggests otherwise.`;
+
+// Lighter prompt used on second passes (regenerate / resume-after-failure).
+// The model EDITS an existing draft instead of re-deriving from scratch, and the
+// repo rules are pre-supplied inline so no tool calls are needed — this keeps the
+// turn count low and avoids exhausting MAX_TURNS.
+const EDIT_SYSTEM = `You are Sentinel, a concise senior code reviewer refining an EXISTING review.
+Do not start over — adjust the prior review to satisfy the reviewer guidance and the rules below.
+Be terse and high-signal. ${OUTPUT_SHAPE}
+Set status:"resolved" for prior issues the new diff fixes.
 IMPORTANT: Reviewer guidance is authoritative and OVERRIDES repo-derived rules/constraints. If the guidance
 says to ignore or stop flagging something, you MUST NOT raise it as an issue, even if a repo rule suggests otherwise.`;
 
@@ -27,11 +41,23 @@ export class AIProviderImpl implements AIProvider {
   constructor(private provider: Provider) {}
 
   async generateReview(input: GenerateReviewInput): Promise<GeneratedReview> {
+    // Second pass when we have a draft to refine and/or rules pre-supplied inline.
+    // In edit-mode we don't offer the KB tool (the rules are already in the prompt),
+    // which keeps the loop to 1-2 turns and avoids exhausting MAX_TURNS.
+    const editMode = Boolean(input.priorReview);
+    const usePreloadedKB = Boolean(input.preloadedKB);
+
     const userParts = [
       `PR #${input.pr.number}: ${input.pr.title}`,
       `Goal (from description):\n${input.pr.body || '(none)'}`,
       input.guidance
         ? `Reviewer guidance (follow this closely; it may calibrate or override defaults):\n${input.guidance}`
+        : '',
+      usePreloadedKB
+        ? `Repo rules/constraints already in effect (do not query for these):\n${input.preloadedKB}`
+        : '',
+      input.priorReview
+        ? `Prior review draft to refine (adjust this — do not start over):\n${input.priorReview}`
         : '',
       input.priorIssues?.length
         ? `Prior issues (reviewed at ${input.priorReviewedSha?.slice(0, 7)}); classify each resolved/open:\n${JSON.stringify(input.priorIssues, null, 2)}`
@@ -40,14 +66,23 @@ export class AIProviderImpl implements AIProvider {
       `Unified diff:\n${input.diff}`,
     ].filter(Boolean).join('\n\n');
 
+    const system = editMode ? EDIT_SYSTEM : SYSTEM;
     const messages: any[] = [
-      { role: 'user', content: `${SYSTEM}\n\n${userParts}` },
+      { role: 'user', content: `${system}\n\n${userParts}` },
     ];
 
-    const toolByName = new Map(input.tools.map(t => [t.name, t]));
+    // When KB is pre-loaded we withhold the tool so the model can't spend turns
+    // querying; otherwise the agent may selectively query as before.
+    const tools = usePreloadedKB ? [] : input.tools;
+    const toolByName = new Map(tools.map(t => [t.name, t]));
+
+    // Track the best textual response we see so we can salvage a partial draft
+    // if we run out of turns instead of throwing away all the work.
+    let lastText: string | undefined;
 
     for (let turn = 0; turn < MAX_TURNS; turn++) {
-      const res = await this.provider.complete(messages, input.tools, input.model);
+      const res = await this.provider.complete(messages, tools, input.model);
+      if (res.text) lastText = res.text;
 
       if (res.toolCalls?.length) {
         // Echo assistant tool_use turn, then provide tool results.
@@ -76,8 +111,14 @@ export class AIProviderImpl implements AIProvider {
       messages.push({ role: 'assistant', content: res.text ?? '' });
       messages.push({ role: 'user', content: 'Respond ONLY with the JSON object described.' });
     }
+
+    // Turn limit reached. Salvage whatever text we last saw as a *partial* draft
+    // so the orchestrator can persist it and a resumed run can finish it cheaply.
+    const salvaged = salvagePartial(lastText);
+    if (salvaged) return { ...salvaged, partial: true };
     throw new ProviderLoopError(`Agent exceeded ${MAX_TURNS} turns without producing a review.`);
   }
+
 
   async calibrate(input: CalibrationInput): Promise<CalibrationResult> {
     const rulesList = input.rules.length
@@ -136,3 +177,22 @@ export function extractJson(text: string): any | null {
   if (start === -1 || end === -1) return null;
   try { return JSON.parse(raw.slice(start, end + 1)); } catch { return null; }
 }
+
+// Best-effort recovery of a usable review from the model's last (non-JSON) text
+// when we hit the turn limit. Prefers valid/partial JSON; otherwise treats the
+// raw text as the markdown body. Returns null only when there's nothing at all.
+export function salvagePartial(text: string | undefined): Omit<GeneratedReview, 'partial'> | null {
+  const trimmed = (text ?? '').trim();
+  if (!trimmed) return null;
+  const parsed = extractJson(trimmed);
+  if (parsed && (parsed.markdown || parsed.summary || parsed.issues)) {
+    return {
+      markdown: parsed.markdown ?? trimmed,
+      summary: parsed.summary ?? '',
+      issues: Array.isArray(parsed.issues) ? (parsed.issues as ReviewIssue[]) : [],
+    };
+  }
+  // No parseable JSON — keep the prose so a resumed run can finish formatting it.
+  return { markdown: trimmed, summary: '', issues: [] };
+}
+

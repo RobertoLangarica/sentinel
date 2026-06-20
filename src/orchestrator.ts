@@ -173,6 +173,17 @@ export class Orchestrator {
             // Combine the run's stored guidance with any regenerate calibration message.
             const combinedGuidance = [run.guidance, calibration].filter(Boolean).join('\n') || undefined;
 
+            // Second-pass detection: a regenerate (calibration set) or a resume after
+            // a salvaged draft (review.partial = 1). On second passes we switch to the
+            // lighter "edit mode" — refine the existing draft with the rules pre-loaded
+            // inline so the agent doesn't burn turns on tool calls.
+            const draftRow: any = wm.db.prepare(`SELECT markdown, partial FROM review WHERE run_id = ?`).get(run.id);
+            const isResumedDraft = draftRow?.partial === 1;
+            const secondPass = Boolean(calibration) || isResumedDraft;
+            const priorReview = secondPass ? (draftRow?.markdown as string | undefined) : undefined;
+            const preloadedKB = secondPass ? formatKbForPrompt(kb.all(run.id)) : undefined;
+            if (isResumedDraft) s.succeed('Resuming from a saved partial review — finishing it…');
+
             const review = await this.ai.generateReview({
               pr, diff, changedFiles: files,
               tools: [kb.getQueryTool(run.id)],
@@ -180,13 +191,15 @@ export class Orchestrator {
               priorIssues: priorMeta?.issues,
               priorReviewedSha: priorMeta?.reviewedSha,
               guidance: combinedGuidance,
+              priorReview,
+              preloadedKB,
             });
 
-            // Persist review + issues.
+            // Persist review + issues (partial flag lets a resume pick it up later).
             wm.db.prepare(
-              `INSERT OR REPLACE INTO review (run_id, markdown, reviewed_sha, summary, generated_at)
-               VALUES (?, ?, ?, ?, ?)`
-            ).run(run.id, review.markdown, pr.headSha, review.summary, new Date().toISOString());
+              `INSERT OR REPLACE INTO review (run_id, markdown, reviewed_sha, summary, generated_at, partial)
+               VALUES (?, ?, ?, ?, ?, ?)`
+            ).run(run.id, review.markdown, pr.headSha, review.summary, new Date().toISOString(), review.partial ? 1 : 0);
             wm.db.prepare(`DELETE FROM review_issue WHERE run_id = ?`).run(run.id);
             const issStmt = wm.db.prepare(
               `INSERT INTO review_issue (run_id, severity, category, file, location, message, status)
@@ -195,10 +208,25 @@ export class Orchestrator {
             for (const i of review.issues) {
               issStmt.run(run.id, i.severity, i.category ?? null, i.file ?? null, i.location ?? null, i.message, i.status);
             }
+
+            // Partial draft → stop here, leave GENERATE resumable, and tell the user
+            // how to continue. The saved draft makes the next attempt cheap (edit mode).
+            if (review.partial) {
+              s.fail('Hit the turn limit — saved a partial review');
+              wm.markStep(run.id, 'GENERATE', 'failed', 'partial draft saved');
+              wm.recordError(run.id, 'Generation hit the turn limit; partial review saved.');
+              this.reporter.result({
+                failed: true,
+                message: `Partial review saved — resume to finish: sentinel review --resume ${run.id}`,
+              });
+              return { runId: run.id, state: 'FAILED', error: 'partial-review' };
+            }
+
             s.succeed('Review generated');
             wm.markStep(run.id, 'GENERATE', 'done');
             break;
           }
+
           case 'APPROVE': {
             const r: any = wm.db.prepare(`SELECT * FROM review WHERE run_id = ?`).get(run.id);
             let markdown = r.markdown as string;
@@ -326,3 +354,13 @@ function summarizeKb(entries: { category: string; content: string }[]): string {
     .map((e, i) => `${i + 1}. [${e.category}] ${e.content.split('\n')[0].slice(0, 80)}`);
   return lines.length ? lines.join('\n') : 'No explicit constraints found (AI will use full docs via KB tool).';
 }
+
+// Render the full KB as a compact bullet list to embed inline on second passes,
+// so the agent has every rule up front and doesn't need to spend turns querying.
+// Highest-weight (user-pinned) rules come first.
+function formatKbForPrompt(entries: { category: string; subject?: string; content: string; weight?: number }[]): string {
+  const sorted = [...entries].sort((a, b) => (b.weight ?? 1) - (a.weight ?? 1));
+  const lines = sorted.map(e => `- [${e.category}${e.subject ? `:${e.subject}` : ''}] ${e.content}`);
+  return lines.length ? lines.join('\n') : '(no explicit rules extracted)';
+}
+

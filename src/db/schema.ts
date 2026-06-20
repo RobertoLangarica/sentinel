@@ -19,8 +19,9 @@ CREATE TABLE IF NOT EXISTS kb_entry (
 CREATE INDEX IF NOT EXISTS idx_kb_run_cat ON kb_entry(run_id, category);
 CREATE TABLE IF NOT EXISTS review (
   run_id TEXT PRIMARY KEY, markdown TEXT NOT NULL, reviewed_sha TEXT NOT NULL,
-  summary TEXT, generated_at TEXT NOT NULL
+  summary TEXT, generated_at TEXT NOT NULL, partial INTEGER NOT NULL DEFAULT 0
 );
+
 CREATE TABLE IF NOT EXISTS review_issue (
   id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL,
   severity TEXT NOT NULL, category TEXT, file TEXT, location TEXT,
@@ -37,13 +38,20 @@ export function initSchema(db: Database.Database): void {
 // Idempotent, additive migrations for run DBs created before a column existed.
 // SQLite has no "ADD COLUMN IF NOT EXISTS", so we check PRAGMA table_info first.
 function migrate(db: Database.Database): void {
-  const cols = new Set(
+  const runCols = new Set(
     (db.prepare(`PRAGMA table_info(run)`).all() as any[]).map(c => c.name),
   );
-  if (!cols.has('kb_extracted_sha')) {
+  if (!runCols.has('kb_extracted_sha')) {
     db.exec(`ALTER TABLE run ADD COLUMN kb_extracted_sha TEXT`);
   }
+  const reviewCols = new Set(
+    (db.prepare(`PRAGMA table_info(review)`).all() as any[]).map(c => c.name),
+  );
+  if (!reviewCols.has('partial')) {
+    db.exec(`ALTER TABLE review ADD COLUMN partial INTEGER NOT NULL DEFAULT 0`);
+  }
 }
+
 
 // Ordered workflow steps (used to seed workflow_step on createRun).
 export const STEP_ORDER = [

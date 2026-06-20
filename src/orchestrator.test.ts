@@ -47,17 +47,28 @@ class FakeGitHub implements GitHubClient {
 
 class FakeAI implements AIProvider {
   lastInput: any;
+  inputs: any[] = [];
+  // A queue of reviews to return per generateReview call; last repeats.
+  reviews: GeneratedReview[] = [review];
+  private gi = 0;
   lastCalibration: CalibrationInput | undefined;
   calibrationResult: CalibrationResult = {
     acknowledgement: 'Got it — I will stop flagging that.',
     rules: [{ directive: 'ignore', rule: 'the thing you asked to ignore' }],
   };
-  async generateReview(input: any) { this.lastInput = input; return review; }
+  async generateReview(input: any) {
+    this.lastInput = input;
+    this.inputs.push(input);
+    const r = this.reviews[Math.min(this.gi, this.reviews.length - 1)];
+    this.gi++;
+    return r;
+  }
   async calibrate(input: CalibrationInput): Promise<CalibrationResult> {
     this.lastCalibration = input;
     return this.calibrationResult;
   }
 }
+
 
 
 class HeadlessReporter implements Reporter {
@@ -209,7 +220,36 @@ test('resuming a DONE run after new commits re-reviews and updates the comment',
   cleanup();
 });
 
+test('a partial review fails the run, persists the draft, and is resumable', async () => {
+  cleanup();
+  const github = new FakeGitHub(null);
+  const ai = new FakeAI();
+  // First generation hits the turn limit → partial draft. Second (on resume)
+  // finishes it cleanly.
+  ai.reviews = [
+    { markdown: '# partial draft', summary: '', issues: [], partial: true },
+    review,
+  ];
+  const first = await new Orchestrator({ github, ai, reporter: new HeadlessReporter() }).run(baseOpts);
+  assert.equal(first.state, 'FAILED');
+  assert.equal(first.error, 'partial-review');
+  assert.equal(github.created.length, 0); // nothing posted yet
+
+  // Resume: should detect the saved draft, run in edit-mode (priorReview set),
+  // finish, and post.
+  const resumed = await new Orchestrator({ github, ai, reporter: new HeadlessReporter() })
+    .run({ resumeRunId: first.runId, interactive: false, promptGuidance: false });
+  assert.equal(resumed.state, 'DONE');
+  assert.equal(github.created.length, 1);
+  // The resumed generation was given the saved draft + pre-loaded rules (edit mode).
+  const lastIn = ai.inputs[ai.inputs.length - 1];
+  assert.equal(lastIn.priorReview, '# partial draft');
+  assert.ok(lastIn.preloadedKB && lastIn.preloadedKB.length > 0);
+  cleanup();
+});
+
 test('missing pr and resume id throws validation', async () => {
+
   cleanup();
   await assert.rejects(
     () => new Orchestrator({ github: new FakeGitHub(), ai: new FakeAI(), reporter: new HeadlessReporter() })

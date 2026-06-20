@@ -132,6 +132,12 @@ export interface GenerateReviewInput {
   priorIssues?: ReviewIssue[];
   priorReviewedSha?: string;
   guidance?: string;        // user guidance + any regenerate calibration message
+  // Second-pass "edit mode": a prior/draft review to refine instead of
+  // re-deriving from scratch. Present on regenerate and on resume-after-failure.
+  priorReview?: string;
+  // Pre-formatted knowledge-base rules embedded directly in the prompt. When
+  // present, the KB tool is NOT offered to the agent (saves tool-call turns).
+  preloadedKB?: string;
 }
 
 
@@ -139,7 +145,11 @@ export interface GeneratedReview {
   markdown: string;
   summary: string;
   issues: ReviewIssue[];
+  // True when the review is an incomplete draft salvaged at the turn limit.
+  // The orchestrator persists it so a resumed run can finish it.
+  partial?: boolean;
 }
+
 
 // A single rule the agent will apply on the next review. `directive: 'ignore'`
 // means the reviewer asked Sentinel to stop flagging it (overrides repo rules).
